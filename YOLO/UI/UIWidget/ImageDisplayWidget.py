@@ -17,6 +17,7 @@ class ImageDisplayWidget(QFrame):
         self.setStyleSheet("background-color: black;")  # 设置背景黑色
         self.setMouseTracking(True)  # 启用鼠标跟踪
         self.crosshair_visible = False  # 是否显示十字光标
+        self.initial_scale_factor = 1.0  # 新增初始缩放比例变量
 
         # 新增变量以支持拖拽
         self.dragging = False  # 是否正在拖拽
@@ -35,14 +36,26 @@ class ImageDisplayWidget(QFrame):
         if pixmap is None:
             return
 
-        self.original_pixmap = pixmap  # 保存原始图片
-        self.latest_pixmap = pixmap  # 保存最新图片
-        self.scale_factor = 1.0  # 重置缩放比例
+        self.original_pixmap = pixmap
+        self.latest_pixmap = pixmap
+
+        # 计算初始缩放比例（保持比例且不超出窗口）
+        window_width = self.width()
+        window_height = self.height()
+        img_width = self.original_pixmap.width()
+        img_height = self.original_pixmap.height()
+
+        # 计算适应窗口的最大比例
+        scale_w = window_width / img_width
+        scale_h = window_height / img_height
+        self.initial_scale_factor = min(scale_w, scale_h)
+        self.scale_factor = self.initial_scale_factor  # 使用适应窗口的比例作为初始值
+
         self.image_offset = QPointF(0, 0)  # 重置偏移量
-        self.text_label.clear()  # 清理文本标签内容
-        self.text_label.hide()  # 隐藏文本标签
-        self.image_label.show()  # 显示图片
-        self._apply_scale()  # 应用缩放
+        self.text_label.clear()
+        self.text_label.hide()
+        self.image_label.show()
+        self._apply_scale()
 
     def update_display_label(self, label_content):
         """ 更新显示的标签内容 """
@@ -53,6 +66,24 @@ class ImageDisplayWidget(QFrame):
         # 隐藏图片
         self.image_label.clear()  # 清空图片显示
         self.image_label.hide()  # 隐藏图片
+
+    def mousePressEvent(self, event: QMouseEvent):
+        """ 记录鼠标按下位置 """
+        if event.button() == Qt.MouseButton.RightButton:
+            self.dragging = True
+            self.drag_start_pos = event.position()  # 记录拖拽开始时的鼠标位置
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        """ 监听鼠标移动事件，更新鼠标位置 """
+        self.mouse_pos = event.position()
+        self.crosshair_visible = True  # 显示十字光标
+
+        if self.dragging:
+            # 计算拖拽的偏移量
+            delta = event.position() - self.drag_start_pos
+            self.image_offset += delta  # 更新图片偏移量
+            self.drag_start_pos = event.position()  # 更新拖拽开始位置
+            self._apply_scale()  # 更新显示
 
     def _apply_scale(self):
         """ 根据当前缩放比例和鼠标位置重新绘制图片 """
@@ -67,11 +98,19 @@ class ImageDisplayWidget(QFrame):
         result_pixmap.fill(QColor(0, 0, 0))  # 黑色填充
 
         # 计算缩放后的图片大小
-        scaled_pixmap = self.original_pixmap.scaled(label_width, label_height, Qt.AspectRatioMode.KeepAspectRatio)
+        scaled_pixmap = self.original_pixmap.scaled(
+            int(self.original_pixmap.width() * self.scale_factor),
+            int(self.original_pixmap.height() * self.scale_factor),
+            Qt.AspectRatioMode.KeepAspectRatio
+        )
 
         # 计算图片的偏移量，使其居中显示
-        x_offset = (label_width - scaled_pixmap.width()) // 2
-        y_offset = (label_height - scaled_pixmap.height()) // 2
+        x_offset = (label_width - scaled_pixmap.width()) // 2 + int(self.image_offset.x())
+        y_offset = (label_height - scaled_pixmap.height()) // 2 + int(self.image_offset.y())
+
+        # 将偏移量转换为整数
+        x_offset = int(x_offset)
+        y_offset = int(y_offset)
 
         painter = QPainter(result_pixmap)
         painter.drawPixmap(x_offset, y_offset, scaled_pixmap)
@@ -92,24 +131,6 @@ class ImageDisplayWidget(QFrame):
         # 确保文本标签在图片上方显示
         self.text_label.raise_()  # 将文本标签提升到最上层
 
-    def mousePressEvent(self, event: QMouseEvent):
-        """ 记录鼠标按下位置 """
-        if event.button() == Qt.MouseButton.RightButton:
-            self.dragging = True
-            self.drag_start_pos = event.position()  # 记录拖拽开始时的鼠标位置
-
-    def mouseMoveEvent(self, event: QMouseEvent):
-        """ 监听鼠标移动事件，更新鼠标位置 """
-        self.mouse_pos = event.position()
-        self.crosshair_visible = True  # 显示十字光标
-
-        if self.dragging:
-            # 计算拖拽的偏移量
-            delta = event.position() - self.drag_start_pos
-            self.image_offset += delta  # 更新图片偏移量
-            self.drag_start_pos = event.position()  # 更新拖拽开始位置
-            self._apply_scale()  # 更新显示
-
     def mouseReleaseEvent(self, event: QMouseEvent):
         """ 处理鼠标释放事件，结束拖拽 """
         if event.button() == Qt.MouseButton.RightButton:
@@ -121,32 +142,37 @@ class ImageDisplayWidget(QFrame):
         self._apply_scale()  # 更新显示
 
     def resizeEvent(self, event):
-        """ 监听窗口大小变化，重新绘制图像 """
+        """ 窗口大小变化时自动调整初始缩放 """
         if self.latest_pixmap:
+            # 仅在保持初始缩放时自动调整
+            if self.scale_factor == self.initial_scale_factor:
+                # 重新计算适应新窗口的比例
+                window_width = self.width()
+                window_height = self.height()
+                img_width = self.original_pixmap.width()
+                img_height = self.original_pixmap.height()
+
+                scale_w = window_width / img_width
+                scale_h = window_height / img_height
+                self.initial_scale_factor = min(scale_w, scale_h)
+                self.scale_factor = self.initial_scale_factor
+
             self._apply_scale()
 
     def wheelEvent(self, event: QWheelEvent):
-        """ 监听鼠标滚轮事件，实现以鼠标位置为中心的缩放功能 """
+        """ 允许缩放超出初始比例 """
         if self.original_pixmap is None:
             return
 
-        # 记录鼠标位置
         self.mouse_pos = event.position()
-
-        # 获取鼠标滚轮的滚动量
         delta = event.angleDelta().y()
 
-        # 计算新的缩放比例
-        if delta > 0:
-            self.scale_factor *= 1.1  # 放大
-        else:
-            self.scale_factor *= 0.9  # 缩小
+        # 计算缩放后的新比例
+        new_scale = self.scale_factor * 1.1 if delta > 0 else self.scale_factor * 0.9
 
-        # 限制缩放的下限为原始图片大小
-        if self.scale_factor < 1.0:
-            self.scale_factor = 1.0
+        # 允许自由缩放（移除下限限制）
+        self.scale_factor = new_scale  # 允许缩小到任意比例
 
-        # 应用新的缩放比例
         self._apply_scale()
 
 def display_selected_label(self, item):
