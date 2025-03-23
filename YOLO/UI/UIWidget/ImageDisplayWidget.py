@@ -1,0 +1,159 @@
+from UI.imports import *
+
+class ImageDisplayWidget(QFrame):
+    """ 子窗口：用于显示用户从文件夹中选中的图片，支持以鼠标位置为中心的缩放 """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.Shape.Box)  # 加个边框，方便拖拽识别
+        self.setMinimumSize(200, 150)  # 设置最小大小
+        self.image_label = QLabel(self)
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setScaledContents(False)  # 不直接拉伸，手动缩放
+        self.latest_pixmap = None  # 存储最新图片
+        self.original_pixmap = None  # 存储原始图片
+        self.scale_factor = 1.0  # 当前缩放比例
+        self.mouse_pos = QPointF()  # 记录鼠标位置
+        self.setStyleSheet("background-color: black;")  # 设置背景黑色
+        self.setMouseTracking(True)  # 启用鼠标跟踪
+        self.crosshair_visible = False  # 是否显示十字光标
+
+        # 新增变量以支持拖拽
+        self.dragging = False  # 是否正在拖拽
+        self.drag_start_pos = QPointF()  # 拖拽开始时的鼠标位置
+        self.image_offset = QPointF(0, 0)  # 图片的偏移量
+
+        # 新增 QLabel 用于显示文本内容
+        self.text_label = QLabel(self)
+        self.text_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.text_label.setStyleSheet("color: white;")  # 设置文本颜色为白色
+        self.text_label.setWordWrap(True)  # 允许文本换行
+        self.text_label.hide()  # 初始隐藏文本标签
+
+    def update_display(self, pixmap):
+        """ 更新显示的图片 """
+        if pixmap is None:
+            return
+
+        self.original_pixmap = pixmap  # 保存原始图片
+        self.latest_pixmap = pixmap  # 保存最新图片
+        self.scale_factor = 1.0  # 重置缩放比例
+        self.image_offset = QPointF(0, 0)  # 重置偏移量
+        self.text_label.clear()  # 清理文本标签内容
+        self.text_label.hide()  # 隐藏文本标签
+        self.image_label.show()  # 显示图片
+        self._apply_scale()  # 应用缩放
+
+    def update_display_label(self, label_content):
+        """ 更新显示的标签内容 """
+        self.text_label.setText(label_content)  # 设置标签内容
+        self.text_label.adjustSize()  # 调整大小以适应文本内容
+        self.text_label.show()  # 显示文本标签
+
+        # 隐藏图片
+        self.image_label.clear()  # 清空图片显示
+        self.image_label.hide()  # 隐藏图片
+
+    def _apply_scale(self):
+        """ 根据当前缩放比例和鼠标位置重新绘制图片 """
+        if self.latest_pixmap is None:
+            return
+
+        label_width = self.width()
+        label_height = self.height()
+
+        # 创建黑色背景的 QPixmap
+        result_pixmap = QPixmap(label_width, label_height)
+        result_pixmap.fill(QColor(0, 0, 0))  # 黑色填充
+
+        # 计算缩放后的图片大小
+        scaled_pixmap = self.original_pixmap.scaled(label_width, label_height, Qt.AspectRatioMode.KeepAspectRatio)
+
+        # 计算图片的偏移量，使其居中显示
+        x_offset = (label_width - scaled_pixmap.width()) // 2
+        y_offset = (label_height - scaled_pixmap.height()) // 2
+
+        painter = QPainter(result_pixmap)
+        painter.drawPixmap(x_offset, y_offset, scaled_pixmap)
+
+        # 绘制十字光标
+        if self.crosshair_visible:
+            pen = QPen(QColor(255, 0, 0))  # 红色十字
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawLine(int(self.mouse_pos.x()), 0, int(self.mouse_pos.x()), label_height)  # 垂直线
+            painter.drawLine(0, int(self.mouse_pos.y()), label_width, int(self.mouse_pos.y()))  # 水平线
+
+        painter.end()
+
+        self.image_label.setPixmap(result_pixmap)
+        self.image_label.setGeometry(0, 0, label_width, label_height)  # 让 QLabel 覆盖整个子窗口
+
+        # 确保文本标签在图片上方显示
+        self.text_label.raise_()  # 将文本标签提升到最上层
+
+    def mousePressEvent(self, event: QMouseEvent):
+        """ 记录鼠标按下位置 """
+        if event.button() == Qt.MouseButton.RightButton:
+            self.dragging = True
+            self.drag_start_pos = event.position()  # 记录拖拽开始时的鼠标位置
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        """ 监听鼠标移动事件，更新鼠标位置 """
+        self.mouse_pos = event.position()
+        self.crosshair_visible = True  # 显示十字光标
+
+        if self.dragging:
+            # 计算拖拽的偏移量
+            delta = event.position() - self.drag_start_pos
+            self.image_offset += delta  # 更新图片偏移量
+            self.drag_start_pos = event.position()  # 更新拖拽开始位置
+            self._apply_scale()  # 更新显示
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        """ 处理鼠标释放事件，结束拖拽 """
+        if event.button() == Qt.MouseButton.RightButton:
+            self.dragging = False
+
+    def leaveEvent(self, event):
+        """ 监听鼠标离开事件，隐藏十字光标 """
+        self.crosshair_visible = False
+        self._apply_scale()  # 更新显示
+
+    def resizeEvent(self, event):
+        """ 监听窗口大小变化，重新绘制图像 """
+        if self.latest_pixmap:
+            self._apply_scale()
+
+    def wheelEvent(self, event: QWheelEvent):
+        """ 监听鼠标滚轮事件，实现以鼠标位置为中心的缩放功能 """
+        if self.original_pixmap is None:
+            return
+
+        # 记录鼠标位置
+        self.mouse_pos = event.position()
+
+        # 获取鼠标滚轮的滚动量
+        delta = event.angleDelta().y()
+
+        # 计算新的缩放比例
+        if delta > 0:
+            self.scale_factor *= 1.1  # 放大
+        else:
+            self.scale_factor *= 0.9  # 缩小
+
+        # 限制缩放的下限为原始图片大小
+        if self.scale_factor < 1.0:
+            self.scale_factor = 1.0
+
+        # 应用新的缩放比例
+        self._apply_scale()
+
+def display_selected_label(self, item):
+    """ 显示选中的标签 """
+    label_path = os.path.join(self.labels_folder, item.text())  # 获取完整路径
+    if os.path.exists(label_path):
+        with open(label_path, 'r') as file:
+            label_content = file.read()  # 读取标签文件内容
+            # 假设有一个方法或控件来显示标签内容，例如一个文本框
+            self.image_display_widget.update_display_label(label_content)  # 更新标签显示窗口

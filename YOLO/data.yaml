@@ -1,0 +1,4 @@
+train: ./datasets/train/images
+val: ./datasets/val/images
+nc: 2  # 类别数（只有蘑菇）
+names: ['snail','player']
