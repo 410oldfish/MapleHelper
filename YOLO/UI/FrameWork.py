@@ -7,13 +7,15 @@ class ScreenCaptureApp(QWidget):
     def __init__(self):
         super().__init__()
         self.frame_rate = 30  # 初始化帧率属性，默认值为 30
-        self.screenshot_folder = "UI/screenshots"  # 截图文件夹路径
-        self.labels_folder = "UI/labels"  # 标签文件夹路径
+        self.screenshot_folder = images_path  # 截图文件夹路径
+        self.labels_folder = labels_path  # 标签文件夹路径
         self.init_ui()
         self.selected_window = None
         self.sct = mss.mss()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_capture)  # 连接定时器到更新捕获的方法
+        # 连接信号到槽函数
+        self.image_display_widget.labels_updated.connect(self.update_labels_list)
 
     def init_ui(self):
         self.setWindowTitle("窗口捕获器")
@@ -228,7 +230,7 @@ class ScreenCaptureApp(QWidget):
         """ 显示选中的图片 """
         image_path = os.path.join(self.screenshot_folder, item.text())  # 获取完整路径
         pixmap = QPixmap(image_path)  # 加载图片
-        self.image_display_widget.update_display(pixmap)  # 更新图片显示窗口
+        self.image_display_widget.update_display(pixmap, item.text())  # 更新图片显示窗口
 
     def display_selected_label(self, item):
         """ 显示选中的标签 """
